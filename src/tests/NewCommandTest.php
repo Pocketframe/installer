@@ -156,9 +156,9 @@ class NewCommandTest extends TestCase
     $application->add(new NewCommand());
 
     $command = $application->find('new');
-    $command->setProcessFactory(function (array $command) {
-      return $this->createMockProcess($command);
-    });
+    // $command->setProcessFactory(function (array $command) {
+    //   return $this->createMockProcess($command);
+    // });
 
     return new CommandTester($command);
   }
