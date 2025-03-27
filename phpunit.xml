@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit backupGlobals="false"
+         colors="true"
+         bootstrap="vendor/autoload.php"
+         stopOnFailure="false">
+    <testsuites>
+        <testsuite name="PocketFrame Test Suite">
+            <directory>src/tests</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="SHELL_VERBOSITY" value="-1"/>
+    </php>
+</phpunit>
