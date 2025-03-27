@@ -1,0 +1,23 @@
+{
+    "name": "pocketframe/installer",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Pocketframe\\": "src/"
+        }
+    },
+    "bin": ["pocketframe"],
+    "authors": [
+        {
+            "name": "William Asaba",
+            "email": "asabawilliamdk@yahoo.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "symfony/console": "7.3.x-dev",
+        "symfony/filesystem": "7.3.x-dev",
+        "symfony/process": "7.3.x-dev"
+    }
+}

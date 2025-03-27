@@ -1,0 +1,11 @@
+#!/usr/bin/env php
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+use PocketFrame\Commands\NewCommand;
+use Symfony\Component\Console\Application;
+
+$app = new Application('PocketFrame Installer', '1.0.0');
+$app->add(new NewCommand());
+$app->run();
