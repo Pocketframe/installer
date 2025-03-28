@@ -34,6 +34,11 @@
             "PocketFrame\\Tests\\": "src/tests/"
         }
     },
+    "scripts": {
+        "post-install-cmd": [
+            "PocketFrame\\Commands\\NewCommand::postInstall"
+        ]
+    },
     "bin": ["pocketframe"],
     "minimum-stability": "stable",
     "prefer-stable": true

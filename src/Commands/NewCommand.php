@@ -15,6 +15,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Filesystem\Exception\IOExceptionInterface;
 use Symfony\Component\Yaml\Yaml;
+use Composer\Script\Event;
 
 class NewCommand extends Command
 {
@@ -29,6 +30,13 @@ class NewCommand extends Command
       ->setDescription('Create a new PocketFrame application')
       ->addArgument('name', InputArgument::REQUIRED, 'The name of the project')
       ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Use a configuration file');
+  }
+
+  public static function postInstall(Event $event)
+  {
+    $io = $event->getIO();
+    $io->write("<info>✓ PocketFrame installer ready to use!</info>");
+    $io->write("Run: <comment>pocketframe new project-name</comment>");
   }
 
   protected function execute(InputInterface $input, OutputInterface $output): int
