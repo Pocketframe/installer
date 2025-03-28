@@ -48,7 +48,7 @@ class NewCommand extends Command
   public static function postInstall(Event $event)
   {
     $io = $event->getIO();
-    $io->write("<info>✓ PocketFrame installer ready to use!</info>");
+    $io->write("<info>✅ PocketFrame installer ready to use!</info>");
     $io->write("Run: <comment>pocketframe new project-name</comment>");
   }
 
@@ -72,7 +72,7 @@ class NewCommand extends Command
 
       return Command::SUCCESS;
     } catch (\Exception $e) {
-      $output->writeln("<error>Installation failed: {$e->getMessage()}</error>");
+      $output->writeln("<error>📛 Installation failed: {$e->getMessage()}</error>");
       $this->rollback($fs, $output);
       return Command::FAILURE;
     }
@@ -109,24 +109,24 @@ class NewCommand extends Command
   }
 
 
-
   private function showBranding(OutputInterface $output)
   {
     $output->writeln(<<<ART
         <fg=cyan;options=bold>
-         ____            _      ______
-        |  _ \ ___  ___ | | __ |  _ \ __ _ _ __ ___
-        | |_) / _ \/ _ \| |/ / | |_) / _` | '__/ _ \
-        |  __/  __/ (_) |   <  |  _ < (_| | | |  __/
-        |_|   \___|\___/|_|\_\ |_| \_\__,_|_|  \___|
+            _____              _          _     __
+          |  __ \            | |        | |   / _|
+          | |__) |___    ___ | | __ ___ | |_ | |_  _ __  __ _  _ __ ___    ___
+          |  ___// _ \  / __|| |/ // _ \| __||  _|| '__|/ _` || '_ ` _ \  / _ \
+          | |   | (_) || (__ |   <|  __/| |_ | |  | |  | (_| || | | | | ||  __/
+          |_|    \___/  \___||_|\_\\___| \__||_|  |_|   \__,_||_| |_| |_| \___|
         </>
-        PocketFrame Installer - Build Amazing Things!
+        Pocketframe Installer - Build Amazing Things!
         ART);
   }
 
   private function createProject(OutputInterface $output, string $name, string $stability)
   {
-    $output->writeln("\n<fg=blue>🚀 Creating new PocketFrame application...</>");
+    $output->writeln("\n<fg=blue;options=bold>🚀 Creating new PocketFrame application...</>");
 
     $process = new Process([
       'composer',
@@ -144,28 +144,28 @@ class NewCommand extends Command
 
   private function checkPlatformRequirements(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>Checking system requirements...</>");
+    $output->writeln("\n<fg=blue;options=bold>📶 Checking system requirements...</>");
 
     // PHP Extensions
     $requiredExtensions = ['pdo', 'mbstring', 'openssl'];
     foreach ($requiredExtensions as $ext) {
       if (!extension_loaded($ext)) {
-        throw new \RuntimeException("Missing required PHP extension: $ext");
+        throw new \RuntimeException("🤭 Missing required PHP extension: $ext");
       }
     }
 
     // Node.js check
-    $process = new Process(['node', '--version']);
+    $process = new Process(['node', '-v']);
     if (!$process->run()) {
-      $output->writeln("<comment>Node.js is not installed - some features might not work</comment>");
+      $output->writeln("<comment>⚠️ Node.js is not installed - some features might not work</comment>");
     }
 
-    $output->writeln("<info>✓ System requirements met</info>");
+    $output->writeln("\n<fg=blue;options=bold>✅ System requirements met</fg>");
   }
 
   private function installDependencies(OutputInterface $output, string $projectDir)
   {
-    $output->writeln("\n<fg=blue>📦 Installing dependencies...</>");
+    $output->writeln("\n<fg=blue;options=bold>📦 Installing dependencies...</>");
 
     // Run composer install
     $process = new Process(['composer', 'install'], $projectDir);
@@ -232,7 +232,7 @@ class NewCommand extends Command
 
       // Password with visible input
       $pwdQuestion = new Question('Database password: ');
-      $pwdQuestion->setHidden(false);  // Make password visible while typing
+      $pwdQuestion->setHidden(false);
       $this->config['db_password'] = $helper->ask($input, $output, $pwdQuestion);
     }
 
@@ -243,7 +243,7 @@ class NewCommand extends Command
   private function setupEnvironment(OutputInterface $output)
   {
 
-    $output->writeln("\n<fg=blue>🔧 Configuring environment...</>");
+    $output->writeln("\n<fg=blue;options=bold>🔧 Configuring environment...</>");
 
     $fs = new Filesystem();
     $envPath = $this->projectPath . '/.env';
@@ -327,12 +327,6 @@ class NewCommand extends Command
     file_put_contents($envPath, $envContent);
   }
 
-  private function escapeEnvValue($value)
-  {
-    // Escape special characters in .env values
-    return '"' . str_replace(['"', "\n", "\r"], ['\"', '', ''], $value) . '"';
-  }
-
 
   private function createDatabase(OutputInterface $output)
   {
@@ -341,17 +335,17 @@ class NewCommand extends Command
     }
 
     if (!($this->config['create_database'] ?? false)) {
-      $output->writeln("\n<fg=blue>⏩ Skipping database creation</>");
+      $output->writeln("\n<fg=blue;options=bold>⏩ Skipping database creation</fg>");
       return;
     }
 
-    $output->writeln("\n<fg=blue>🗄️ Creating database...</>");
+    $output->writeln("\n<fg=blue;options=bold>🗄️ Creating database...</>");
 
     try {
       if ($this->config['db_driver'] === 'sqlite') {
         $dbPath = $this->projectPath . '/database/database.sqlite';
         touch($dbPath);
-        $output->writeln("<info>SQLite file created at: $dbPath</info>");
+        $output->writeln("<info>‼️ SQLite file created at: $dbPath</info>");
         return;
       }
 
@@ -381,21 +375,21 @@ class NewCommand extends Command
       $process = Process::fromShellCommandline($command);
       $this->runProcess($process, $output, 'Creating database');
     } catch (\Exception $e) {
-      $output->writeln("<error>Database creation failed: {$e->getMessage()}</error>");
+      $output->writeln("<error>❌ Database creation failed: {$e->getMessage()}</error>");
       $output->writeln("<comment>You can create the database manually and update .env file</comment>");
     }
   }
 
   private function rollback(Filesystem $fs, OutputInterface $output)
   {
-    $output->writeln("\n<fg=red>⏪ Rolling back changes...</>");
+    $output->writeln("\n<fg=red;options=bold>⏪ Rolling back changes...</>");
 
     try {
       if (in_array('create-project', $this->rollbackSteps)) {
         $fs->remove($this->projectPath);
       }
     } catch (IOExceptionInterface $e) {
-      $output->writeln("<error>Rollback failed: {$e->getMessage()}</error>");
+      $output->writeln("<error>❌ Rollback failed: {$e->getMessage()}</error>");
     }
   }
 
@@ -427,21 +421,21 @@ class NewCommand extends Command
   private function runProcess(Process $process, OutputInterface $output, string $task)
   {
     $output->write("<comment>$task...</comment> ");
-    $process->setTimeout(300); // Increased timeout
+    $process->setTimeout(300);
     $process->run();
 
     if (!$process->isSuccessful()) {
-      $output->writeln("<error>✖</error>");
+      $output->writeln("<error>❌</error>");
       throw new \RuntimeException($process->getErrorOutput());
     }
 
-    $output->writeln("<info>✓</info>");
+    $output->writeln("<info>✅</info>");
   }
 
 
   private function initializeGit(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>📦 Initializing Git repository...</>");
+    $output->writeln("\n<fg=blue;options=bold>📦 Initializing Git repository...</>");
 
     try {
       $this->runProcess(new Process(['git', 'init'], $this->projectPath), $output, 'Initializing Git');
@@ -449,10 +443,10 @@ class NewCommand extends Command
       $this->runProcess(
         new Process(['git', 'commit', '-m', 'Initial commit by Pocketframe Installer'], $this->projectPath),
         $output,
-        'Creating initial commit'
+        '✅ Creating initial commit'
       );
     } catch (\Exception $e) {
-      $output->writeln("<comment>Git initialization skipped: {$e->getMessage()}</comment>");
+      $output->writeln("<comment>⏩ Git initialization skipped: {$e->getMessage()}</comment>");
     }
   }
 
@@ -460,7 +454,7 @@ class NewCommand extends Command
   {
     if (!$this->config['with_docker']) return;
 
-    $output->writeln("\n<fg=blue>🐳 Generating Docker configuration...</>");
+    $output->writeln("\n<fg=blue;options=bold>🐳 Generating Docker configuration...</>");
 
     // Create Dockerfile
     $dockerfile = <<<DOCKER
@@ -534,14 +528,21 @@ class NewCommand extends Command
 
   private function runPostInstallCommands(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>⚡ Finalizing setup...</>");
+    $output->writeln("\n<fg=blue;options=bold>🎷🎸 Finalizing setup...</>");
 
-    // Generate application key
-    $this->runProcess(
-      new Process(['php', 'pocket', 'add:key'], $this->projectPath),
-      $output,
-      'Generating application key'
-    );
+    // Run migrations if database was configured
+    if (!($this->config['skip_database'] ?? false)) {
+      try {
+        $this->runProcess(
+          new Process(['php', 'pocket', 'schema', 'apply'], $this->projectPath),
+          $output,
+          '🏃🏾‍➡️ Running database migrations'
+        );
+      } catch (\Exception $e) {
+        $output->writeln("<error>❌ Migration failed: {$e->getMessage()}</error>");
+        $output->writeln("<comment>You can run migrations manually later using: php pocket schema apply</comment>");
+      }
+    }
 
     // Install node dependencies if package.json exists
     if (file_exists($this->projectPath . '/package.json')) {
@@ -571,7 +572,7 @@ class NewCommand extends Command
     $this->config['telemetry'] = $helper->ask($input, $output, $question);
 
     $question = new ConfirmationQuestion(
-      'Initialize Git repository? [<comment>yes</comment>]: ',
+      '🗃️ Initialize Git repository? [<comment>yes</comment>]: ',
       true
     );
     $this->config['init_git'] = $helper->ask($input, $output, $question);
@@ -581,7 +582,7 @@ class NewCommand extends Command
   {
     $output->writeln(<<<SUCCESS
 
-    <fg=green;options=bold>🎉 Installation successful!</>
+    <fg=green;options=bold>🎉 Installation successful! 🎆🥇</>
     Next steps:
      1. cd {$this->projectPath}
      2. php pocket serve
