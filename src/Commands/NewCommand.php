@@ -242,7 +242,7 @@ class NewCommand extends Command
 
   private function setupEnvironment(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>🔧 Configuring environment...</>");
+    $output->writeln("\n<fg=blue;options=bold>🔧 Configuring environment...</>");
 
     $fs = new Filesystem();
     $envPath = $this->projectPath . '/.env';
@@ -326,16 +326,16 @@ class NewCommand extends Command
     }
 
     if (!isset($this->config['db_driver']) || ($this->config['skip_database'] ?? false)) {
-      $output->writeln("\n<fg=blue>⏩ Skipping database setup</>");
+      $output->writeln("\n<fg=blue;options=bold>⏩ Skipping database setup</>");
       return;
     }
 
     if (!($this->config['create_database'] ?? false)) {
-      $output->writeln("\n<fg=blue>⏩ Skipping database creation</>");
+      $output->writeln("\n<fg=blue;options=bold>⏩ Skipping database creation</>");
       return;
     }
 
-    $output->writeln("\n<fg=blue>🗄️ Creating database...</>");
+    $output->writeln("\n<fg=blue;options=bold>🗄️ Creating database...</>");
 
     try {
       if ($this->config['db_driver'] === 'sqlite') {
@@ -384,7 +384,7 @@ class NewCommand extends Command
 
   private function createSchemaTable(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>📦 Creating schema version table...</>");
+    $output->writeln("\n<fg=blue;options=bold>📦 Creating schema version table...</>");
 
     try {
       $tableSql = match ($this->config['db_driver']) {
