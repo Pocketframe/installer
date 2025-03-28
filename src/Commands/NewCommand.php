@@ -184,7 +184,7 @@ class NewCommand extends Command
     // Database location question
     $locationQuestion = new ChoiceQuestion(
       'Where should the database be created?',
-      ['Local SQLite file', 'MySQL server', 'PostgreSQL server'],
+      ['SQLite file', 'MySQL server', 'PostgreSQL server'],
       0
     );
 
@@ -192,7 +192,7 @@ class NewCommand extends Command
 
     // Map location to driver
     $this->config['db_driver'] = match ($location) {
-      'Local SQLite file' => 'sqlite',
+      'SQLite file' => 'sqlite',
       'MySQL server' => 'mysql',
       'PostgreSQL server' => 'pgsql'
     };
@@ -200,7 +200,7 @@ class NewCommand extends Command
     // Collect credentials if needed
     if ($this->config['db_driver'] !== 'sqlite') {
       $questions = [
-        'db_name' => new Question('Database name: ', strtolower(str_replace(' ', '_', $this->projectName))),
+        'db_name' => new Question('Database name: ', 'pocketframe'),
         'db_user' => new Question('Database user: ', $this->config['db_driver'] === 'mysql' ? 'root' : 'postgres'),
         'db_password' => new Question('Database password: '),
       ];
@@ -260,7 +260,7 @@ class NewCommand extends Command
 
     // Generate and set application key
     $this->runProcess(
-      new Process(['php', 'artisan', 'key:generate', '--force'], $this->projectPath),
+      new Process(['php', 'pocket', 'add:key', '--force'], $this->projectPath),
       $output,
       'Generating APP_KEY'
     );
