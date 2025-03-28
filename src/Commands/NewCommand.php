@@ -30,7 +30,13 @@ class NewCommand extends Command
       ->setName('new')
       ->setDescription('Create a new PocketFrame application')
       ->addArgument('name', InputArgument::REQUIRED)
-      ->addOption('config', 'c', InputOption::VALUE_REQUIRED);
+      ->addOption(
+        'stability',
+        's',
+        InputOption::VALUE_OPTIONAL,
+        'Minimum stability (dev, alpha, beta, RC, stable)',
+        'dev'  // Set default value here
+      );
   }
 
   public static function postInstall(Event $event)
@@ -43,10 +49,21 @@ class NewCommand extends Command
   protected function execute(InputInterface $input, OutputInterface $output): int
   {
     $this->showBranding($output);
-    $this->projectPath = getcwd() . '/' . $input->getArgument('name');
+    $stability = $input->getOption('stability');
     $fs = new Filesystem();
 
+
+
     try {
+      $process = new Process([
+        'composer',
+        'create-project',
+        'pocketframe/application',
+        $input->getArgument('name'),
+        '--stability=' . $stability,
+        '--no-interaction'
+      ]);
+
       // Load config if provided
       if ($input->getOption('config')) {
         $this->loadConfig($input->getOption('config'), $fs);
@@ -57,7 +74,7 @@ class NewCommand extends Command
 
       // Clone skeleton
       $this->cloneSkeleton($input, $output);
-      $this->installDependencies($output);
+      $this->installDependencies($output, $this->projectPath);
 
       // Interactive setup
       $this->askForDatabaseDetails($input, $output);
@@ -115,6 +132,22 @@ class NewCommand extends Command
         ART);
   }
 
+  private function createProject(OutputInterface $output, string $name, string $stability)
+  {
+    $output->writeln("\n<fg=blue>🚀 Creating new PocketFrame application...</>");
+
+    $process = new Process([
+      'composer',
+      'create-project',
+      'pocketframe/application',
+      $name,
+      '--stability=' . $stability,
+      '--no-interaction'
+    ]);
+
+    $this->runProcess($process, $output, 'Creating project structure');
+  }
+
   private function checkPlatformRequirements(OutputInterface $output)
   {
     $output->writeln("\n<fg=blue>Checking system requirements...</>");
@@ -151,16 +184,13 @@ class NewCommand extends Command
     $this->rollbackSteps[] = 'clone';
   }
 
-  private function installDependencies(OutputInterface $output)
+  private function installDependencies(OutputInterface $output, string $projectDir)
   {
     $output->writeln("\n<fg=blue>📦 Installing dependencies...</>");
 
     // Run composer install
-    $this->runProcess(
-      new Process(['composer', 'install', '--no-interaction'], $this->projectPath),
-      $output,
-      'Installing PHP dependencies'
-    );
+    $process = new Process(['composer', 'install'], $projectDir);
+    $this->runProcess($process, $output, 'Installing packages');
 
     // Check for composer.lock in rollback
     $this->rollbackSteps[] = 'dependencies';
