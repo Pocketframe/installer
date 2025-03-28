@@ -3,7 +3,6 @@
     "description": "PocketFrame application installer",
     "type": "project",
     "license": "MIT",
-    "version": "1.0.3",
     "require": {
        "php": "^8.1",
         "symfony/console": "^6.3|^7.0",
