@@ -214,7 +214,35 @@ class NewCommand extends Command
 
   private function setupEnvironment(OutputInterface $output)
   {
+
     $output->writeln("\n<fg=blue>🔧 Configuring environment...</>");
+
+    $fs = new Filesystem();
+    $envPath = $this->projectPath . '/.env';
+    $projectName = basename($this->projectPath);
+
+    // Copy .env.example if .env doesn't exist
+    if (!$fs->exists($envPath)) {
+      $fs->copy($this->projectPath . '/.env.example', $envPath);
+    }
+
+    // Update core application settings
+    $envContent = file_get_contents($envPath);
+
+    // Set application name
+    $envContent = preg_replace(
+      '/^APP_NAME=.*$/m',
+      'APP_NAME="' . addslashes($projectName) . '"',
+      $envContent
+    );
+
+    // Generate application key
+    $this->runProcess(
+      new Process(['php', 'pocket', 'add:key'], $this->projectPath),
+      $output,
+      'Generating application key'
+    );
+
 
     $fs = new Filesystem();
     $envPath = $this->projectPath . '/.env';
@@ -270,6 +298,13 @@ class NewCommand extends Command
 
     file_put_contents($envPath, $envContent);
   }
+
+  private function escapeEnvValue($value)
+  {
+    // Escape special characters in .env values
+    return '"' . str_replace(['"', "\n", "\r"], ['\"', '', ''], $value) . '"';
+  }
+
 
   private function createDatabase(OutputInterface $output)
   {
