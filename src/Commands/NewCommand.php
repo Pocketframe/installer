@@ -181,35 +181,63 @@ class NewCommand extends Command
     /** @var QuestionHelper $helper */
     $helper = $this->getHelper('question');
 
-    // Database location question
-    $locationQuestion = new ChoiceQuestion(
-      'Where should the database be created?',
-      ['SQLite file', 'MySQL server', 'PostgreSQL server'],
+    // Ask if they want database setup
+    $dbQuestion = new ConfirmationQuestion(
+      'Would you like to configure database settings? (yes/no) [<comment>yes</comment>]: ',
+      true
+    );
+
+    if (!$helper->ask($input, $output, $dbQuestion)) {
+      $this->config['skip_database'] = true;
+      return;
+    }
+
+    // Choose setup type
+    $setupTypeQuestion = new ChoiceQuestion(
+      'Database setup type:',
+      ['Create new database', 'Use existing database', 'Skip database setup'],
       0
     );
 
-    $location = $helper->ask($input, $output, $locationQuestion);
+    $setupType = $helper->ask($input, $output, $setupTypeQuestion);
 
-    // Map location to driver
-    $this->config['db_driver'] = match ($location) {
-      'SQLite file' => 'sqlite',
-      'MySQL server' => 'mysql',
-      'PostgreSQL server' => 'pgsql'
-    };
+    if ($setupType === 'Skip database setup') {
+      $this->config['skip_database'] = true;
+      return;
+    }
 
-    // Collect credentials if needed
+    // Database type selection
+    $typeQuestion = new ChoiceQuestion(
+      'Select database type:',
+      ['MySQL', 'PostgreSQL', 'SQLite'],
+      0
+    );
+    $this->config['db_driver'] = strtolower($helper->ask($input, $output, $typeQuestion));
+
+    // Common questions for SQL and NoSQL
     if ($this->config['db_driver'] !== 'sqlite') {
       $questions = [
-        'db_name' => new Question('Database name: ', 'pocketframe'),
-        'db_user' => new Question('Database user: ', $this->config['db_driver'] === 'mysql' ? 'root' : 'postgres'),
-        'db_password' => new Question('Database password: '),
+        'db_host' => new Question('Database host [127.0.0.1]: ', '127.0.0.1'),
+        'db_port' => new Question(
+          'Database port [' . ($this->config['db_driver'] === 'mysql' ? '3306' : '5432') . ']: ',
+          $this->config['db_driver'] === 'mysql' ? '3306' : '5432'
+        ),
+        'db_name' => new Question('Database name: '),
+        'db_user' => new Question('Database username: '),
       ];
 
       foreach ($questions as $key => $q) {
-        $q->setHidden(true);
         $this->config[$key] = $helper->ask($input, $output, $q);
       }
+
+      // Password with visible input
+      $pwdQuestion = new Question('Database password: ');
+      $pwdQuestion->setHidden(false);  // Make password visible while typing
+      $this->config['db_password'] = $helper->ask($input, $output, $pwdQuestion);
     }
+
+    // Set creation flag only for "Create new database" option
+    $this->config['create_database'] = ($setupType === 'Create new database');
   }
 
   private function setupEnvironment(OutputInterface $output)
@@ -308,29 +336,50 @@ class NewCommand extends Command
 
   private function createDatabase(OutputInterface $output)
   {
-    $output->writeln("\n<fg=blue>🗄️ Creating database...</>");
-
-    if ($this->config['db_driver'] === 'sqlite') {
-      touch($this->projectPath . '/database/database.sqlite');
+    if ($this->config['skip_database'] ?? false) {
       return;
     }
 
-    $command = match ($this->config['db_driver']) {
-      'mysql' => sprintf(
-        "mysql -u %s -p%s -e 'CREATE DATABASE %s;'",
-        $this->config['db_user'],
-        $this->config['db_password'],
-        $this->config['db_name']
-      ),
-      'pgsql' => sprintf(
-        "createdb -U %s %s",
-        $this->config['db_user'],
-        $this->config['db_name']
-      ),
-    };
+    if (!($this->config['create_database'] ?? false)) {
+      $output->writeln("\n<fg=blue>⏩ Skipping database creation</>");
+      return;
+    }
 
-    $process = Process::fromShellCommandline($command);
-    $this->runProcess($process, $output, 'Creating database');
+    $output->writeln("\n<fg=blue>🗄️ Creating database...</>");
+
+    try {
+      if ($this->config['db_driver'] === 'sqlite') {
+        $dbPath = $this->projectPath . '/database/database.sqlite';
+        touch($dbPath);
+        $output->writeln("<info>SQLite file created at: $dbPath</info>");
+        return;
+      }
+
+      $command = match ($this->config['db_driver']) {
+        'mysql' => sprintf(
+          "mysql -h %s -u %s -P %s -p%s -e \"CREATE DATABASE %s;\"",
+          escapeshellarg($this->config['db_host']),
+          escapeshellarg($this->config['db_user']),
+          escapeshellarg($this->config['db_port']),
+          escapeshellarg($this->config['db_password']),
+          escapeshellarg($this->config['db_name'])
+        ),
+        'pgsql' => sprintf(
+          "PGPASSWORD=%s createdb -h %s -p %s -U %s %s",
+          escapeshellarg($this->config['db_password']),
+          escapeshellarg($this->config['db_host']),
+          escapeshellarg($this->config['db_port']),
+          escapeshellarg($this->config['db_user']),
+          escapeshellarg($this->config['db_name'])
+        ),
+      };
+
+      $process = Process::fromShellCommandline($command);
+      $this->runProcess($process, $output, 'Creating database');
+    } catch (\Exception $e) {
+      $output->writeln("<error>Database creation failed: {$e->getMessage()}</error>");
+      $output->writeln("<comment>You can create the database manually and update .env file</comment>");
+    }
   }
 
   private function rollback(Filesystem $fs, OutputInterface $output)
