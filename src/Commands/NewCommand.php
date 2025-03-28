@@ -16,6 +16,7 @@ use Symfony\Component\Process\Process;
 use Symfony\Component\Filesystem\Exception\IOExceptionInterface;
 use Symfony\Component\Yaml\Yaml;
 use Composer\Script\Event;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 
 class NewCommand extends Command
 {
@@ -128,19 +129,38 @@ class NewCommand extends Command
   {
     $output->writeln("\n<fg=blue;options=bold>🚀 Creating new PocketFrame application...</>");
 
-    $process = new Process([
-      'composer',
-      'create-project',
-      'pocketframe/application',
-      $name,
-      '--stability=' . $stability,
-      '--no-interaction',
-      '--remove-vcs'
-    ]);
+    // Create project
+    $this->runProcess(
+      new Process([
+        'composer',
+        'create-project',
+        'pocketframe/application',
+        $name,
+        '--stability=' . $stability,
+        '--no-interaction',
+        '--remove-vcs',
+        '--ansi'
+      ]),
+      $output,
+      'Creating project structure'
+    );
 
-    $this->runProcess($process, $output, 'Creating project structure');
-    $this->rollbackSteps[] = 'create-project';
+    // Optimize autoload
+    $this->runProcess(
+      new Process(['composer', 'dump-autoload', '-o'], $this->projectPath),
+      $output,
+      'Optimizing class loader'
+    );
+
+    // Show installed dependencies
+    $output->writeln("\n<fg=green>📦 Installed Dependencies:</fg>");
+    $this->runProcess(
+      new Process(['composer', 'show', '-D', '--direct'], $this->projectPath),
+      $output,
+      'Package list'
+    );
   }
+
 
   private function checkPlatformRequirements(OutputInterface $output)
   {
@@ -443,6 +463,7 @@ class NewCommand extends Command
   }
 
 
+
   private function rollback(Filesystem $fs, OutputInterface $output)
   {
     $output->writeln("\n<fg=red;options=bold>⏪ Rolling back changes...</>");
@@ -459,15 +480,27 @@ class NewCommand extends Command
   private function runProcess(Process $process, OutputInterface $output, string $task)
   {
     $output->write("<comment>$task...</comment> ");
-    $process->setTimeout(300);
-    $process->run();
 
-    if (!$process->isSuccessful()) {
+    try {
+      $process->mustRun(function ($type, $buffer) use ($output) {
+        // Format composer output
+        $cleanBuffer = preg_replace('/\e\[[^m]*m/', '', $buffer);
+
+        if (Process::ERR === $type) {
+          $output->write("<error>$cleanBuffer</error>");
+        } else {
+          // Show package installations in real-time
+          if (preg_match('/- Installing (\S+)/', $cleanBuffer, $matches)) {
+            $output->writeln("\n  <info>✅</info> {$matches[1]}");
+          }
+        }
+      });
+
+      $output->writeln("<info>✅</info>");
+    } catch (ProcessFailedException $e) {
       $output->writeln("<error>❌</error>");
-      throw new \RuntimeException($process->getErrorOutput());
+      throw new \RuntimeException($e->getMessage());
     }
-
-    $output->writeln("<info>✅</info>");
   }
 
 
@@ -568,21 +601,44 @@ class NewCommand extends Command
   {
     $output->writeln("\n<fg=blue;options=bold>🎷🎸 Finalizing setup...</>");
 
-    // Run migrations if database was configured
+    // Generate application key
+    $this->runProcess(
+      new Process(['php', 'pocket', 'add:key'], $this->projectPath),
+      $output,
+      'Generating application key'
+    );
+
+    // Run schema scripts if database was configured
     if (!($this->config['skip_database'] ?? false)) {
       try {
-        $this->runProcess(
-          new Process(['php', 'pocket', 'schema', 'apply'], $this->projectPath),
-          $output,
-          '🏃🏾‍➡️ Running database migrations'
-        );
+        $output->writeln("\n<fg=cyan>📜 Running schema scripts...</>");
+
+        $process = new Process(['php', 'pocket', 'schema', 'apply'], $this->projectPath);
+        $process->setTimeout(null);
+
+        $process->run(function ($type, $buffer) use ($output) {
+          foreach (explode("\n", $buffer) as $line) {
+            $cleanLine = trim(preg_replace('/\e\[[^m]*m/', '', $line));
+            if (preg_match('/Applying script: (\S+)/', $cleanLine, $matches)) {
+              $output->writeln("  <info>✅</info> Applying {$matches[1]}");
+            } elseif (!empty($cleanLine)) {
+              $output->write("  <comment>⏳</comment> $cleanLine");
+            }
+          }
+        });
+
+        if (!$process->isSuccessful()) {
+          throw new \RuntimeException($process->getErrorOutput());
+        }
+
+        $output->writeln("\n<info>✅ Schema scripts completed successfully!</info>");
       } catch (\Exception $e) {
-        $output->writeln("<error>❌ Migration failed: {$e->getMessage()}</error>");
-        $output->writeln("<comment>You can run migrations manually later using: php pocket schema apply</comment>");
+        $output->writeln("\n<error>❌ Schema scripts failed: {$e->getMessage()}</error>");
+        $output->writeln("<comment>You can run schema scripts manually later using: php pocket schema apply</comment>");
       }
     }
 
-    // Install node dependencies if package.json exists
+    // Install node dependencies
     if (file_exists($this->projectPath . '/package.json')) {
       $this->runProcess(
         new Process(['npm', 'install'], $this->projectPath),
@@ -620,7 +676,7 @@ class NewCommand extends Command
   {
     $output->writeln(<<<SUCCESS
 
-    <fg=green;options=bold>🎉 Installation successful! 🎆🥇</>
+    <fg=green;options=bold>🎉 Installation successful! 🥇</>
     Next steps:
      1. cd {$this->projectPath}
      2. php pocket serve
