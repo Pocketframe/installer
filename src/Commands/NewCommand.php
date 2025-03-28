@@ -242,8 +242,7 @@ class NewCommand extends Command
 
   private function setupEnvironment(OutputInterface $output)
   {
-
-    $output->writeln("\n<fg=blue;options=bold>🔧 Configuring environment...</>");
+    $output->writeln("\n<fg=blue>🔧 Configuring environment...</>");
 
     $fs = new Filesystem();
     $envPath = $this->projectPath . '/.env';
@@ -254,7 +253,6 @@ class NewCommand extends Command
       $fs->copy($this->projectPath . '/.env.example', $envPath);
     }
 
-    // Update core application settings
     $envContent = file_get_contents($envPath);
 
     // Set application name
@@ -271,60 +269,53 @@ class NewCommand extends Command
       'Generating application key'
     );
 
+    // Only configure database if settings were provided
+    if (isset($this->config['db_driver'])) {
+      $driver = $this->config['db_driver'];
+      $envContent = preg_replace('/^DB_CONNECTION=.*$/m', "DB_CONNECTION=$driver", $envContent);
 
-    $fs = new Filesystem();
-    $envPath = $this->projectPath . '/.env';
-    $projectName = basename($this->projectPath);
-
-    // Update .env with core settings
-    $envContent = file_get_contents($envPath);
-
-    // Set application name
-    $envContent = preg_replace(
-      '/^APP_NAME=.*$/m',
-      'APP_NAME="' . addslashes($projectName) . '"',
-      $envContent
-    );
-
-    // Generate and set application key
-    $this->runProcess(
-      new Process(['php', 'pocket', 'add:key', '--force'], $this->projectPath),
-      $output,
-      'Generating APP_KEY'
-    );
-
-    // Update database configuration
-    $driver = $this->config['db_driver'];
-    $envContent = preg_replace('/^DB_CONNECTION=.*$/m', "DB_CONNECTION=$driver", $envContent);
-
-    if ($driver === 'sqlite') {
-      $envContent = preg_replace(
-        '/^# DB_DATABASE=.*$/m',
-        'DB_DATABASE=database/database.sqlite',
-        $envContent
-      );
-    } else {
-      $replacements = [
-        'DB_HOST' => '127.0.0.1',
-        'DB_PORT' => $driver === 'mysql' ? '3306' : '5432',
-        'DB_DATABASE' => $this->config['db_name'],
-        'DB_USERNAME' => $this->config['db_user'],
-        'DB_PASSWORD' => $this->config['db_password']
-      ];
-
-      foreach ($replacements as $key => $value) {
+      if ($driver === 'sqlite') {
         $envContent = preg_replace(
-          "/^# $key=.*$/m",
-          "$key=$value",
+          '/^# DB_DATABASE=.*$/m',
+          'DB_DATABASE=database/database.sqlite',
           $envContent
         );
+      } else {
+        $replacements = [
+          'DB_HOST' => $this->config['db_host'] ?? '127.0.0.1',
+          'DB_PORT' => $this->config['db_port'] ?? ($driver === 'mysql' ? '3306' : '5432'),
+          'DB_DATABASE' => $this->config['db_name'] ?? 'pocketframe',
+          'DB_USERNAME' => $this->config['db_user'] ?? 'root',
+          'DB_PASSWORD' => $this->config['db_password'] ?? ''
+        ];
+
+        foreach ($replacements as $key => $value) {
+          $envContent = preg_replace(
+            "/^# $key=.*$/m",
+            "$key=" . $this->escapeEnvValue($value),
+            $envContent
+          );
+        }
       }
     }
 
-    // Clean up commented database configurations
-    $envContent = preg_replace('/^# (DB_.*)$/m', '# $1', $envContent);
-
     file_put_contents($envPath, $envContent);
+  }
+
+  private function escapeEnvValue($value)
+  {
+    // Remove any existing quotes
+    $value = trim($value, '"\'');
+
+    // Escape double quotes and backslashes
+    $value = addslashes($value);
+
+    // Add quotes if value contains spaces or special characters
+    if (preg_match('/[#\s\\\\"]/', $value)) {
+      $value = '"' . $value . '"';
+    }
+
+    return $value;
   }
 
 
@@ -334,22 +325,30 @@ class NewCommand extends Command
       return;
     }
 
-    if (!($this->config['create_database'] ?? false)) {
-      $output->writeln("\n<fg=blue;options=bold>⏩ Skipping database creation</fg>");
+    if (!isset($this->config['db_driver']) || ($this->config['skip_database'] ?? false)) {
+      $output->writeln("\n<fg=blue>⏩ Skipping database setup</>");
       return;
     }
 
-    $output->writeln("\n<fg=blue;options=bold>🗄️ Creating database...</>");
+    if (!($this->config['create_database'] ?? false)) {
+      $output->writeln("\n<fg=blue>⏩ Skipping database creation</>");
+      return;
+    }
+
+    $output->writeln("\n<fg=blue>🗄️ Creating database...</>");
 
     try {
       if ($this->config['db_driver'] === 'sqlite') {
         $dbPath = $this->projectPath . '/database/database.sqlite';
         touch($dbPath);
-        $output->writeln("<info>‼️ SQLite file created at: $dbPath</info>");
+        $output->writeln("<info>SQLite file created at: $dbPath</info>");
+
+        // Create table for SQLite
+        $this->createSchemaTable($output);
         return;
       }
 
-      // Build SQL command with proper escaping
+      // Create database
       $dbName = $this->config['db_name'];
       $sql = sprintf('CREATE DATABASE `%s`;', addslashes($dbName));
 
@@ -374,11 +373,75 @@ class NewCommand extends Command
 
       $process = Process::fromShellCommandline($command);
       $this->runProcess($process, $output, 'Creating database');
+
+      // Create schema table after successful database creation
+      $this->createSchemaTable($output);
     } catch (\Exception $e) {
-      $output->writeln("<error>❌ Database creation failed: {$e->getMessage()}</error>");
+      $output->writeln("<error>Database creation failed: {$e->getMessage()}</error>");
       $output->writeln("<comment>You can create the database manually and update .env file</comment>");
     }
   }
+
+  private function createSchemaTable(OutputInterface $output)
+  {
+    $output->writeln("\n<fg=blue>📦 Creating schema version table...</>");
+
+    try {
+      $tableSql = match ($this->config['db_driver']) {
+        'mysql' => "CREATE TABLE IF NOT EXISTS pocket_schemas (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                schema_name VARCHAR(255) NOT NULL,
+                applied_at DATETIME NOT NULL,
+                batch INT NOT NULL
+            );",
+        'pgsql' => "CREATE TABLE IF NOT EXISTS pocket_schemas (
+                id SERIAL PRIMARY KEY,
+                schema_name VARCHAR(255) NOT NULL,
+                applied_at TIMESTAMP NOT NULL,
+                batch INT NOT NULL
+            );",
+        'sqlite' => "CREATE TABLE IF NOT EXISTS pocket_schemas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schema_name TEXT NOT NULL,
+                applied_at DATETIME NOT NULL,
+                batch INTEGER NOT NULL
+            );"
+      };
+
+      $command = match ($this->config['db_driver']) {
+        'mysql' => sprintf(
+          "mysql -h %s -u %s -P %s -p%s -D %s -e %s",
+          escapeshellarg($this->config['db_host']),
+          escapeshellarg($this->config['db_user']),
+          escapeshellarg($this->config['db_port']),
+          escapeshellarg($this->config['db_password']),
+          escapeshellarg($this->config['db_name']),
+          escapeshellarg($tableSql)
+        ),
+        'pgsql' => sprintf(
+          "PGPASSWORD=%s psql -h %s -p %s -U %s -d %s -c %s",
+          escapeshellarg($this->config['db_password']),
+          escapeshellarg($this->config['db_host']),
+          escapeshellarg($this->config['db_port']),
+          escapeshellarg($this->config['db_user']),
+          escapeshellarg($this->config['db_name']),
+          escapeshellarg($tableSql)
+        ),
+        'sqlite' => sprintf(
+          "sqlite3 %s \"%s\"",
+          escapeshellarg($this->projectPath . '/database/database.sqlite'),
+          addslashes($tableSql)
+        )
+      };
+
+      $process = Process::fromShellCommandline($command);
+      $this->runProcess($process, $output, 'Creating schema table');
+    } catch (\Exception $e) {
+      $output->writeln("<error>Schema table creation failed: {$e->getMessage()}</error>");
+      $output->writeln("<comment>You can create the table manually later</comment>");
+    }
+  }
+
 
   private function rollback(Filesystem $fs, OutputInterface $output)
   {
@@ -390,31 +453,6 @@ class NewCommand extends Command
       }
     } catch (IOExceptionInterface $e) {
       $output->writeln("<error>❌ Rollback failed: {$e->getMessage()}</error>");
-    }
-  }
-
-  private function sendTelemetry(OutputInterface $output)
-  {
-    try {
-      $data = [
-        'timestamp' => date('c'),
-        'features' => array_keys($this->config),
-        'db_driver' => $this->config['db_driver'] ?? null,
-      ];
-
-      $process = new Process([
-        'curl',
-        '-X',
-        'POST',
-        'https://telemetry.pocketframe.github.io/collect',
-        '-d',
-        json_encode($data),
-        '--silent'
-      ]);
-
-      $process->start(); // Run async
-    } catch (\Exception $e) {
-      // Fail silently
     }
   }
 
