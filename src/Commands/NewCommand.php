@@ -35,7 +35,13 @@ class NewCommand extends Command
         's',
         InputOption::VALUE_OPTIONAL,
         'Minimum stability (dev, alpha, beta, RC, stable)',
-        'dev'  // Set default value here
+        'dev'
+      )
+      ->addOption(
+        'config',
+        'c',
+        InputOption::VALUE_OPTIONAL,
+        'Custom configuration file path'
       );
   }
 
@@ -49,31 +55,23 @@ class NewCommand extends Command
   protected function execute(InputInterface $input, OutputInterface $output): int
   {
     $this->showBranding($output);
+    $projectName = $input->getArgument('name');
+    $this->projectPath = getcwd() . '/' . $projectName;
     $stability = $input->getOption('stability');
     $fs = new Filesystem();
 
-
-
     try {
-      $process = new Process([
-        'composer',
-        'create-project',
-        'pocketframe/application',
-        $input->getArgument('name'),
-        '--stability=' . $stability,
-        '--no-interaction'
-      ]);
+      $this->createProject($output, $projectName, $stability);
 
       // Load config if provided
-      if ($input->getOption('config')) {
-        $this->loadConfig($input->getOption('config'), $fs);
+      if ($configPath = $input->getOption('config')) {
+        $this->loadConfig($configPath, $fs);
       }
 
       // Validate system requirements
       $this->checkPlatformRequirements($output);
 
-      // Clone skeleton
-      $this->cloneSkeleton($input, $output);
+      // Install dependencies
       $this->installDependencies($output, $this->projectPath);
 
       // Interactive setup
@@ -94,6 +92,9 @@ class NewCommand extends Command
 
       // Telemetry
       $this->sendTelemetry($output);
+
+      // Run post-create setup
+      $this->setupProject($input, $output);
 
       return Command::SUCCESS;
     } catch (\Exception $e) {
@@ -116,6 +117,21 @@ class NewCommand extends Command
 
     $this->config = array_merge($this->config, $config);
   }
+
+
+  private function setupProject(InputInterface $input, OutputInterface $output)
+  {
+    $this->checkPlatformRequirements($output);
+    $this->askForDatabaseDetails($input, $output);
+    $this->askForOptionalFeatures($input, $output);
+    $this->setupEnvironment($output);
+    $this->createDatabase($output);
+    $this->setupDocker($output);
+    $this->initializeGit($output);
+    $this->runPostInstallCommands($output);
+    $this->showSuccessMessage($output);
+  }
+
 
 
   private function showBranding(OutputInterface $output)
@@ -142,10 +158,12 @@ class NewCommand extends Command
       'pocketframe/application',
       $name,
       '--stability=' . $stability,
-      '--no-interaction'
+      '--no-interaction',
+      '--remove-vcs'
     ]);
 
     $this->runProcess($process, $output, 'Creating project structure');
+    $this->rollbackSteps[] = 'create-project';
   }
 
   private function checkPlatformRequirements(OutputInterface $output)
@@ -167,21 +185,6 @@ class NewCommand extends Command
     }
 
     $output->writeln("<info>✓ System requirements met</info>");
-  }
-
-  private function cloneSkeleton(InputInterface $input, OutputInterface $output)
-  {
-    $output->writeln("\n<fg=blue>🚀 Creating project structure...</>");
-
-    $process = new Process([
-      'git',
-      'clone',
-      'https://github.com/yourusername/pocketframe-skeleton.git',
-      $this->projectPath
-    ]);
-
-    $this->runProcess($process, $output, 'Cloning repository');
-    $this->rollbackSteps[] = 'clone';
   }
 
   private function installDependencies(OutputInterface $output, string $projectDir)
@@ -283,13 +286,7 @@ class NewCommand extends Command
     $output->writeln("\n<fg=red>⏪ Rolling back changes...</>");
 
     try {
-      // Remove vendor directory if installed
-      if (in_array('dependencies', $this->rollbackSteps)) {
-        $fs->remove($this->projectPath . '/vendor');
-      }
-
-      // Remove project directory if created
-      if (in_array('clone', $this->rollbackSteps)) {
+      if (in_array('create-project', $this->rollbackSteps)) {
         $fs->remove($this->projectPath);
       }
     } catch (IOExceptionInterface $e) {
@@ -352,71 +349,6 @@ class NewCommand extends Command
     } catch (\Exception $e) {
       $output->writeln("<comment>Git initialization skipped: {$e->getMessage()}</comment>");
     }
-  }
-
-  private function handleShareableConfigs(InputInterface $input, OutputInterface $output)
-  {
-    /** @var QuestionHelper $helper */
-    $helper = $this->getHelper('question');
-
-    $question = new ConfirmationQuestion(
-      'Would you like to save this configuration for future projects? (yes/no) [<comment>no</comment>]: ',
-      false
-    );
-
-    if ($helper->ask($input, $output, $question)) {
-      $configName = $helper->ask($input, $output, new Question('Enter config name: '));
-      $configPath = getcwd() . "/pocketframe-{$configName}.json";
-
-      file_put_contents(
-        $configPath,
-        json_encode($this->config, JSON_PRETTY_PRINT)
-      );
-
-      $output->writeln("<info>Configuration saved to: {$configPath}</info>");
-    }
-  }
-
-  private function updateEnvFile()
-  {
-    $envPath = $this->projectPath . '/.env';
-    $envContent = file_get_contents($envPath);
-
-    // Update database configuration
-    $envContent = preg_replace('/DB_CONNECTION=.*/', "DB_CONNECTION={$this->config['db_driver']}", $envContent);
-
-    if ($this->config['db_driver'] === 'sqlite') {
-      $envContent = preg_replace(
-        '/# DB_DATABASE=.*/',
-        "DB_DATABASE=database/database.sqlite",
-        $envContent
-      );
-    } else {
-      $replacements = [
-        'DB_HOST' => '127.0.0.1',
-        'DB_PORT' => $this->config['db_driver'] === 'mysql' ? '3306' : '5432',
-        'DB_DATABASE' => $this->config['db_name'],
-        'DB_USERNAME' => $this->config['db_user'],
-        'DB_PASSWORD' => $this->config['db_password'],
-      ];
-
-      foreach ($replacements as $key => $value) {
-        $envContent = preg_replace(
-          "/# {$key}=.*/",
-          "{$key}={$value}",
-          $envContent
-        );
-      }
-    }
-
-    // Update app name and URL
-    $envContent = preg_replace(
-      '/APP_NAME=".*?"/',
-      'APP_NAME="' . addslashes($this->config['project_name']) . '"',
-      $envContent
-    );
-
-    file_put_contents($envPath, $envContent);
   }
 
   private function setupDocker(OutputInterface $output)
