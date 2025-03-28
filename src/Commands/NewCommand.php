@@ -61,40 +61,14 @@ class NewCommand extends Command
     $fs = new Filesystem();
 
     try {
+      // Step 1: Create project using composer create-project
       $this->createProject($output, $projectName, $stability);
 
-      // Load config if provided
-      if ($configPath = $input->getOption('config')) {
-        $this->loadConfig($configPath, $fs);
-      }
-
-      // Validate system requirements
-      $this->checkPlatformRequirements($output);
-
-      // Install dependencies
-      $this->installDependencies($output, $this->projectPath);
-
-      // Interactive setup
-      $this->askForDatabaseDetails($input, $output);
-      $this->askForOptionalFeatures($input, $output);
-
-      // Configure environment
-      $this->setupEnvironment($output);
-      $this->createDatabase($output);
-
-      // Additional features
-      $this->setupDocker($output);
-      $this->initializeGit($output);
-
-      // Finalize
-      $this->runPostInstallCommands($output);
-      $this->showSuccessMessage($output);
+      // Step 2: Perform project setup
+      $this->setupProject($input, $output);
 
       // Telemetry
-      $this->sendTelemetry($output);
-
-      // Run post-create setup
-      $this->setupProject($input, $output);
+      // $this->sendTelemetry($output);
 
       return Command::SUCCESS;
     } catch (\Exception $e) {
@@ -121,6 +95,8 @@ class NewCommand extends Command
 
   private function setupProject(InputInterface $input, OutputInterface $output)
   {
+    chdir($this->projectPath);
+
     $this->checkPlatformRequirements($output);
     $this->askForDatabaseDetails($input, $output);
     $this->askForOptionalFeatures($input, $output);
@@ -205,23 +181,32 @@ class NewCommand extends Command
     /** @var QuestionHelper $helper */
     $helper = $this->getHelper('question');
 
-    // Database Driver
-    $question = new ChoiceQuestion(
-      'Select database driver (default: mysql):',
-      ['mysql', 'pgsql', 'sqlite'],
+    // Database location question
+    $locationQuestion = new ChoiceQuestion(
+      'Where should the database be created?',
+      ['Local SQLite file', 'MySQL server', 'PostgreSQL server'],
       0
     );
-    $this->config['db_driver'] = $helper->ask($input, $output, $question);
 
-    // Other database details (skip for SQLite)
+    $location = $helper->ask($input, $output, $locationQuestion);
+
+    // Map location to driver
+    $this->config['db_driver'] = match ($location) {
+      'Local SQLite file' => 'sqlite',
+      'MySQL server' => 'mysql',
+      'PostgreSQL server' => 'pgsql'
+    };
+
+    // Collect credentials if needed
     if ($this->config['db_driver'] !== 'sqlite') {
       $questions = [
-        'db_name' => new Question('Database name: ', 'pocketframe'),
-        'db_user' => new Question('Database user: ', 'root'),
-        'db_password' => new Question('Database password: ', ''),
+        'db_name' => new Question('Database name: ', strtolower(str_replace(' ', '_', $this->projectName))),
+        'db_user' => new Question('Database user: ', $this->config['db_driver'] === 'mysql' ? 'root' : 'postgres'),
+        'db_password' => new Question('Database password: '),
       ];
 
       foreach ($questions as $key => $q) {
+        $q->setHidden(true);
         $this->config[$key] = $helper->ask($input, $output, $q);
       }
     }
@@ -231,25 +216,57 @@ class NewCommand extends Command
   {
     $output->writeln("\n<fg=blue>🔧 Configuring environment...</>");
 
-    // Copy .env.example to .env
     $fs = new Filesystem();
-    $fs->copy($this->projectPath . '/.env.example', $this->projectPath . '/.env');
-
-    // Generate APP_KEY
-    $process = new Process(['php', 'pocket', 'add:key'], $this->projectPath);
-    $this->runProcess($process, $output, 'Generating APP_KEY');
-
-    // Update .env with database details
     $envPath = $this->projectPath . '/.env';
+    $projectName = basename($this->projectPath);
+
+    // Update .env with core settings
     $envContent = file_get_contents($envPath);
 
-    foreach ($this->config as $key => $value) {
+    // Set application name
+    $envContent = preg_replace(
+      '/^APP_NAME=.*$/m',
+      'APP_NAME="' . addslashes($projectName) . '"',
+      $envContent
+    );
+
+    // Generate and set application key
+    $this->runProcess(
+      new Process(['php', 'artisan', 'key:generate', '--force'], $this->projectPath),
+      $output,
+      'Generating APP_KEY'
+    );
+
+    // Update database configuration
+    $driver = $this->config['db_driver'];
+    $envContent = preg_replace('/^DB_CONNECTION=.*$/m', "DB_CONNECTION=$driver", $envContent);
+
+    if ($driver === 'sqlite') {
       $envContent = preg_replace(
-        "/DB_{$key}=.*/",
-        "DB_{$key}={$value}",
+        '/^# DB_DATABASE=.*$/m',
+        'DB_DATABASE=database/database.sqlite',
         $envContent
       );
+    } else {
+      $replacements = [
+        'DB_HOST' => '127.0.0.1',
+        'DB_PORT' => $driver === 'mysql' ? '3306' : '5432',
+        'DB_DATABASE' => $this->config['db_name'],
+        'DB_USERNAME' => $this->config['db_user'],
+        'DB_PASSWORD' => $this->config['db_password']
+      ];
+
+      foreach ($replacements as $key => $value) {
+        $envContent = preg_replace(
+          "/^# $key=.*$/m",
+          "$key=$value",
+          $envContent
+        );
+      }
     }
+
+    // Clean up commented database configurations
+    $envContent = preg_replace('/^# (DB_.*)$/m', '# $1', $envContent);
 
     file_put_contents($envPath, $envContent);
   }
@@ -342,7 +359,7 @@ class NewCommand extends Command
       $this->runProcess(new Process(['git', 'init'], $this->projectPath), $output, 'Initializing Git');
       $this->runProcess(new Process(['git', 'add', '.'], $this->projectPath), $output, 'Staging files');
       $this->runProcess(
-        new Process(['git', 'commit', '-m', 'Initial commit by PocketFrame Installer'], $this->projectPath),
+        new Process(['git', 'commit', '-m', 'Initial commit by Pocketframe Installer'], $this->projectPath),
         $output,
         'Creating initial commit'
       );
