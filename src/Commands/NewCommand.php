@@ -27,9 +27,10 @@ class NewCommand extends Command
   protected function configure()
   {
     $this
+      ->setName('new')
       ->setDescription('Create a new PocketFrame application')
-      ->addArgument('name', InputArgument::REQUIRED, 'The name of the project')
-      ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Use a configuration file');
+      ->addArgument('name', InputArgument::REQUIRED)
+      ->addOption('config', 'c', InputOption::VALUE_REQUIRED);
   }
 
   public static function postInstall(Event $event)
