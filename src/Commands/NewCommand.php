@@ -355,14 +355,18 @@ class NewCommand extends Command
         return;
       }
 
+      // Build SQL command with proper escaping
+      $dbName = $this->config['db_name'];
+      $sql = sprintf('CREATE DATABASE `%s`;', addslashes($dbName));
+
       $command = match ($this->config['db_driver']) {
         'mysql' => sprintf(
-          "mysql -h %s -u %s -P %s -p%s -e \"CREATE DATABASE %s;\"",
+          "mysql -h %s -u %s -P %s -p%s -e %s",
           escapeshellarg($this->config['db_host']),
           escapeshellarg($this->config['db_user']),
           escapeshellarg($this->config['db_port']),
           escapeshellarg($this->config['db_password']),
-          escapeshellarg($this->config['db_name'])
+          escapeshellarg($sql)
         ),
         'pgsql' => sprintf(
           "PGPASSWORD=%s createdb -h %s -p %s -U %s %s",
